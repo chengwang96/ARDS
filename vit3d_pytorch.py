@@ -98,13 +98,11 @@ class Transformer(nn.Module):
 class ViT3D(nn.Module):
     def __init__(self, *, image_size, patch_size, num_classes, dim, depth, heads, mlp_dim, pool='cls', channels=1, dim_head=64, dropout=0., emb_dropout=0.):
         super().__init__()
-        assert all([each_dimension % patch_size == 0 for each_dimension in image_size])
-        num_patches = (image_size[0] // patch_size) * \
-            (image_size[1] // patch_size)*(image_size[2] // patch_size)
-        patch_dim = channels * patch_size ** 3
+        import ipdb; ipdb.set_trace()
+        num_patches = (image_size[0] // patch_size[0]) * (image_size[1] // patch_size[1]) * (image_size[2] // patch_size[2])
+        patch_dim = channels * patch_size[0] * patch_size[1] * patch_size[2] 
         assert num_patches > MIN_NUM_PATCHES, f'your number of patches ({num_patches}) is way too small for attention to be effective (at least 16). Try decreasing your patch size'
-        assert pool in {
-            'cls', 'mean'}, 'pool type must be either cls (cls token) or mean (mean pooling)'
+        assert pool in { 'cls', 'mean'}, 'pool type must be either cls (cls token) or mean (mean pooling)'
 
         self.patch_size = patch_size
 
@@ -128,7 +126,7 @@ class ViT3D(nn.Module):
         p = self.patch_size
         img = img.squeeze(dim=1)
 
-        x = rearrange(img, 'b (x p1) (y p2) (z p3) -> b (x y z) (p1 p2 p3)', p1=p, p2=p, p3=p)
+        x = rearrange(img, 'b (x p1) (y p2) (z p3) -> b (x y z) (p1 p2 p3)', p1=p[0], p2=p[1], p3=p[2])
         x = self.patch_to_embedding(x)
         b, n, _ = x.shape
 

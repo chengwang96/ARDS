@@ -1,2 +1,5 @@
 
 pretrained_ViT.bin
+data
+output
+__pycache__

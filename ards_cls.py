@@ -49,6 +49,7 @@ def parse_args():
     parser.add_argument('--batch_size', default=4, type=int)
     parser.add_argument('--max_epoch', default=100, type=int)
     parser.add_argument('--dataset', default='ards_v2', type=str)
+    parser.add_argument('--num_classes', default=2, type=int)
     parser.add_argument('--model', default='vit3d', type=str)
     parser.add_argument('--initial_lr', default=1e-4, type=float)
     parser.add_argument('--modal', default='mediastinum_window', type=str)
@@ -57,6 +58,7 @@ def parse_args():
     parser.add_argument('--rotate', action='store_true')
     parser.add_argument('--flip', action='store_true')
     parser.add_argument('--intensity', action='store_true')
+    parser.add_argument('--use_smote', action='store_true')
     
     config = parser.parse_args()
 
@@ -71,11 +73,10 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 #######################################################
 
 image_size = (32, 256, 256)
-patch_size = (4, 16, 16)
+patch_size = (4, 32, 32)
 batch_size = config.batch_size
 max_epoch = config.max_epoch
 num_workers = config.batch_size
-
 pin_memory = True
 
 #######################################################
@@ -83,7 +84,7 @@ pin_memory = True
 #######################################################
 
 if config.model == 'vit3d':
-    model = ViT3D(image_size=image_size, patch_size=32, num_classes=3, dim=1024, depth=6, heads=16, mlp_dim=2048, dropout=0.1, emb_dropout=0.1)
+    model = ViT3D(image_size=image_size, patch_size=patch_size, num_classes=config.num_classes, dim=256, depth=2, heads=4, mlp_dim=512, dropout=0.1, emb_dropout=0.1)
 elif config.model == 'med_clip':
     model = ViT(in_channels=1, img_size=image_size, patch_size=patch_size, pos_embed="perceptron", spatial_dims=len(patch_size), classification=True)
     model.load_state_dict(torch.load('./pretrained_ViT.bin', map_location='cpu'), strict=False)
@@ -91,6 +92,12 @@ model = model.cuda()
 if torch.cuda.device_count() > 1:
     print("Using", torch.cuda.device_count(), "GPUs")
     model = nn.DataParallel(model)
+
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+num_params = count_parameters(model) / 1_000_000
+print(f'Parameters: {num_params:.2f} M')
 
 #######################################################
 # Dataset
@@ -128,9 +135,9 @@ val_transform = mtf.Compose(
 )
 
 start_time = time.time()
-train_dataset = ARDSDataset(data_root=data_dir, img_ids=train_img_ids, num_classes=3, transform=train_transform, image_size=image_size, mode='train', modal=config.modal)
+train_dataset = ARDSDataset(data_root=data_dir, img_ids=train_img_ids, num_classes=config.num_classes, transform=train_transform, image_size=image_size, mode='train', modal=config.modal, use_smote=config.use_smote)
 print('training dataset is loaded, has {} examples'.format(len(train_dataset)))
-val_dataset = ARDSDataset(data_root=data_dir, img_ids=val_img_ids, num_classes=3, transform=val_transform, image_size=image_size, mode='val', modal=config.modal)
+val_dataset = ARDSDataset(data_root=data_dir, img_ids=val_img_ids, num_classes=config.num_classes, transform=val_transform, image_size=image_size, mode='val', modal=config.modal, use_smote=config.use_smote)
 print('validation dataset is loaded, has {} examples'.format(len(val_dataset)))
 end_time = time.time()
 elapsed_time = end_time - start_time
@@ -200,8 +207,8 @@ for epoch in range(max_epoch):
     correct = 0
     total = 0
 
-    class_correct = {i: 0 for i in range(3)}
-    class_total = {i: 0 for i in range(3)}
+    class_correct = {i: 0 for i in range(config.num_classes)}
+    class_total = {i: 0 for i in range(config.num_classes)}
 
     for inputs, labels in train_loader:
         inputs, labels = inputs.to(device), labels.to(device)
@@ -227,7 +234,7 @@ for epoch in range(max_epoch):
     epoch_loss = running_loss / total
     epoch_acc = correct / total
 
-    class_acc = {i: class_correct[i] / class_total[i] if class_total[i] > 0 else 0 for i in range(3)}
+    class_acc = {i: class_correct[i] / class_total[i] if class_total[i] > 0 else 0 for i in range(config.num_classes)}
 
     my_writer.add_scalar('train/loss', epoch_loss, global_step=epoch)
     my_writer.add_scalar('train/acc', epoch_acc, global_step=epoch)
@@ -235,7 +242,7 @@ for epoch in range(max_epoch):
     if (epoch+1) % 1 == 0:
         now = datetime.datetime.now()
         print('Epoch: {}/{} \t {:02d}:{:02d}:{:02d} \t Training Loss: {:.6f} Training Acc: {:.6f}'.format(epoch + 1, max_epoch, now.hour, now.minute, now.second, epoch_loss, epoch_acc))
-        for i in range(3):
+        for i in range(config.num_classes):
             print(f'Class {i} Accuracy: {class_acc[i]:.4f}')
     
     if (epoch+1) % 5 == 0:
@@ -244,7 +251,7 @@ for epoch in range(max_epoch):
         correct = 0
         total = 0
 
-        num_classes = 3
+        num_classes = config.num_classes
         class_correct = {i: 0 for i in range(num_classes)}
         class_total = {i: 0 for i in range(num_classes)}
 
@@ -296,6 +303,10 @@ running_loss = 0.0
 correct = 0
 total = 0
 
+num_classes = config.num_classes
+class_correct = {i: 0 for i in range(num_classes)}
+class_total = {i: 0 for i in range(num_classes)}
+
 with torch.no_grad():
     for inputs, labels in val_loader:
         inputs, labels = inputs.to(device), labels.to(device)
@@ -308,10 +319,15 @@ with torch.no_grad():
         total += labels.size(0)
         correct += predicted.eq(labels).sum().item()
 
+        for label, prediction in zip(labels, predicted):
+            if label == prediction:
+                class_correct[label.item()] += 1
+            class_total[label.item()] += 1
+
 val_loss = running_loss / total
 val_acc = correct / total
 
-class_acc = {i: correct[i] / total[i] if total[i] > 0 else 0 for i in range(num_classes)}
+class_acc = {i: class_correct[i] / class_total[i] if class_total[i] > 0 else 0 for i in range(num_classes)}
 
 my_writer.add_scalar('test/loss', val_loss, global_step=i)
 my_writer.add_scalar('test/acc', val_acc, global_step=i)
