@@ -98,7 +98,6 @@ class Transformer(nn.Module):
 class ViT3D(nn.Module):
     def __init__(self, *, image_size, patch_size, num_classes, dim, depth, heads, mlp_dim, pool='cls', channels=1, dim_head=64, dropout=0., emb_dropout=0.):
         super().__init__()
-        import ipdb; ipdb.set_trace()
         num_patches = (image_size[0] // patch_size[0]) * (image_size[1] // patch_size[1]) * (image_size[2] // patch_size[2])
         patch_dim = channels * patch_size[0] * patch_size[1] * patch_size[2] 
         assert num_patches > MIN_NUM_PATCHES, f'your number of patches ({num_patches}) is way too small for attention to be effective (at least 16). Try decreasing your patch size'

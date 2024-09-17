@@ -73,7 +73,6 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 #######################################################
 
 image_size = (32, 256, 256)
-patch_size = (4, 32, 32)
 batch_size = config.batch_size
 max_epoch = config.max_epoch
 num_workers = config.batch_size
@@ -84,8 +83,10 @@ pin_memory = True
 #######################################################
 
 if config.model == 'vit3d':
-    model = ViT3D(image_size=image_size, patch_size=patch_size, num_classes=config.num_classes, dim=256, depth=2, heads=4, mlp_dim=512, dropout=0.1, emb_dropout=0.1)
+    patch_size = (4, 16, 16)
+    model = ViT3D(image_size=image_size, patch_size=patch_size, num_classes=config.num_classes, dim=256, depth=2, heads=4, mlp_dim=512, dropout=0.2, emb_dropout=0.2)
 elif config.model == 'med_clip':
+    patch_size = (4, 16, 16)
     model = ViT(in_channels=1, img_size=image_size, patch_size=patch_size, pos_embed="perceptron", spatial_dims=len(patch_size), classification=True)
     model.load_state_dict(torch.load('./pretrained_ViT.bin', map_location='cpu'), strict=False)
 model = model.cuda()
@@ -177,6 +178,8 @@ if config.flip:
     New_folder += '_flip'
 if config.intensity:
     New_folder += '_intensity'
+if config.use_smote:
+    New_folder += '_smote'
 New_folder += '_{}'.format(formatted_time)
 
 if os.path.exists(New_folder) and os.path.isdir(New_folder):
